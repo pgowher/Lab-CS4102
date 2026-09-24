@@ -19,10 +19,12 @@ struct HopFigure {
     omnetpp::cCanvas *canvas;
     omnetpp::cFigure *line;
     omnetpp::cFigure *label;
+    omnetpp::SimTime createdAt;
 };
 
 std::deque<HopFigure> hopFigures;
 long hopFigureSequence = 0;
+bool relayWasMoving = false;
 
 double movingRelayY(double t)
 {
@@ -44,9 +46,22 @@ omnetpp::cFigure::Color packetColor(int kind)
     }
 }
 
-void removeOldHopFigures()
+void clearHopFigures()
 {
-    while (hopFigures.size() > 320) {
+    while (!hopFigures.empty()) {
+        HopFigure old = hopFigures.front();
+        hopFigures.pop_front();
+        delete old.canvas->removeFigure(old.line);
+        delete old.canvas->removeFigure(old.label);
+    }
+}
+
+void removeOldHopFigures(omnetpp::SimTime now)
+{
+    // Keep only a short, readable animation trail.  Without age-based
+    // expiry, every protocol hop remains on the canvas for the whole run and
+    // the old route visually overlaps the newly discovered route.
+    while (!hopFigures.empty() && (now - hopFigures.front().createdAt > omnetpp::SimTime(0.8) || hopFigures.size() > 140)) {
         HopFigure old = hopFigures.front();
         hopFigures.pop_front();
         delete old.canvas->removeFigure(old.line);
@@ -205,6 +220,11 @@ bool ZrpNode::transmit(ZrpPacket *packet, int next)
         else if (packetKind == ROUTE_REPLY) ++routeRepliesSent;
     }
     if (hasGUI()) {
+        bool relayMoving = simTime() >= SimTime(18) && simTime() < SimTime(42);
+        if (relayMoving && !relayWasMoving)
+            clearHopFigures();
+        relayWasMoving = relayMoving;
+
         cCanvas *canvas = getParentModule()->getCanvas();
         cModule *destination = node(next);
         double x1 = par("x").doubleValue();
@@ -230,8 +250,8 @@ bool ZrpNode::transmit(ZrpPacket *packet, int next)
         label->setHalo(true);
         label->setZIndex(21);
         canvas->addFigure(label);
-        hopFigures.push_back({canvas, line, label});
-        removeOldHopFigures();
+        hopFigures.push_back({canvas, line, label, simTime()});
+        removeOldHopFigures(simTime());
     }
     EV_INFO << messageName(packet->getKind()) << " hop " << id << " -> " << next << "\n";
     sendDirect(packet, SimTime(0.002), SIMTIME_ZERO, node(next), "radioIn");
