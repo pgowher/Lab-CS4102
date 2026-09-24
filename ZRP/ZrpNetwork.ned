@@ -1,3 +1,4 @@
+simple ZrpNode
 {
     parameters:
         int nodeId;
