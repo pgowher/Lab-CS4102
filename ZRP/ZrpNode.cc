@@ -71,6 +71,16 @@ std::vector<int> reversedPath(const std::vector<int>& path)
     return result;
 }
 
+int countBits(int mask)
+{
+    int count = 0;
+    while (mask != 0) {
+        count += mask & 1;
+        mask >>= 1;
+    }
+    return count;
+}
+
 const char *messageName(int kind)
 {
     switch (kind) {
@@ -107,6 +117,14 @@ void ZrpNode::initialize()
     delaySignal = registerSignal("oneWayDelay");
     hopSignal = registerSignal("hopCount");
     discoverySignal = registerSignal("routeDiscoveryDelay");
+    zoneSizeSignal = registerSignal("zoneSize");
+    routeLengthSignal = registerSignal("activeRouteHops");
+    packetKindSignal = registerSignal("packetKindTransmitted");
+    controlTxSignal = registerSignal("controlPacketTransmitted");
+    dataTxSignal = registerSignal("dataPacketTransmitted");
+    pingTxSignal = registerSignal("pingAttempt");
+    pingRxSignal = registerSignal("pingDelivered");
+    routeErrorSignal = registerSignal("routeError");
     updatePosition();
     updateTimer = new cMessage("zone update timer", UPDATE_TIMER);
     scheduleAt(simTime() + SimTime(id * 0.01), updateTimer);
@@ -174,6 +192,18 @@ bool ZrpNode::transmit(ZrpPacket *packet, int next)
         delete packet;
         return false;
     }
+    int packetKind = packet->getKind();
+    emit(packetKindSignal, packetKind);
+    if (packetKind == PING_DATA) {
+        ++pingTransmissions;
+        emit(dataTxSignal, 1);
+    }
+    else {
+        emit(controlTxSignal, 1);
+        if (packetKind == ZONE_UPDATE) ++zoneUpdatesSent;
+        else if (packetKind == BORDERCAST) ++bordercastsSent;
+        else if (packetKind == ROUTE_REPLY) ++routeRepliesSent;
+    }
     if (hasGUI()) {
         cCanvas *canvas = getParentModule()->getCanvas();
         cModule *destination = node(next);
@@ -211,6 +241,7 @@ bool ZrpNode::transmit(ZrpPacket *packet, int next)
 void ZrpNode::sendUpdate()
 {
     neighborMask = currentNeighbors();
+    emit(zoneSizeSignal, countBits(neighborMask));
     knownLinks[id] = neighborMask;
     linkTimes[id] = simTime();
     latestUpdate[id] = ++updateSequence;
@@ -371,6 +402,7 @@ void ZrpNode::handleReply(ZrpPacket *packet)
             if (cachedRoute.empty() || packet->route.size() < cachedRoute.size()) {
                 cachedRoute = packet->route;
                 routeLearned = simTime();
+                emit(routeLengthSignal, (int)cachedRoute.size() - 1);
                 EV_INFO << "ZRP route discovered:";
                 for (int hop : cachedRoute) EV_INFO << " " << hop;
                 EV_INFO << "\n";
@@ -385,6 +417,7 @@ void ZrpNode::handleReply(ZrpPacket *packet)
 void ZrpNode::sendError(const std::vector<int>& path, int failedAt)
 {
     ++routeErrors;
+    emit(routeErrorSignal, 1);
     if (failedAt == 0) {
         cachedRoute.clear();
         discoveryPending = false;
@@ -402,6 +435,7 @@ void ZrpNode::handleData(ZrpPacket *packet)
 {
     if (id == packet->destination) {
         ++received;
+        emit(pingRxSignal, 1);
         double delay = (simTime() - packet->born).dbl();
         int hopCount = (int)packet->route.size() - 1;
         delays.collect(delay);
@@ -437,6 +471,7 @@ void ZrpNode::handleError(ZrpPacket *packet)
 void ZrpNode::startPing()
 {
     ++sent;
+    emit(pingTxSignal, 1);
     if (discoveryPending && simTime() - discoveryStarted > SimTime(2))
         discoveryPending = false;
     if (cachedRoute.empty() || simTime() - routeLearned > SimTime(4)) {
@@ -481,6 +516,13 @@ void ZrpNode::handleMessage(cMessage *message)
 
 void ZrpNode::finish()
 {
+    recordScalar("zone updates transmitted", zoneUpdatesSent);
+    recordScalar("bordercast packets transmitted", bordercastsSent);
+    recordScalar("route replies transmitted", routeRepliesSent);
+    recordScalar("control packets transmitted", zoneUpdatesSent + bordercastsSent + routeRepliesSent + routeErrors);
+    recordScalar("data packets transmitted", pingTransmissions);
+    recordScalar("route errors generated", routeErrors);
+    recordScalar("last active route hops", cachedRoute.empty() ? 0 : (int)cachedRoute.size() - 1);
     if (id == 0) {
         long delivered = node(9)->received;
         recordScalar("ping packets sent by source", sent);
@@ -494,5 +536,4 @@ void ZrpNode::finish()
         recordScalar("average one-way delay at destination (s)", delays.getCount() ? delays.getMean() : 0);
         recordScalar("average hops to destination", hops.getCount() ? hops.getMean() : 0);
     }
-    recordScalar("route errors generated", routeErrors);
 }
