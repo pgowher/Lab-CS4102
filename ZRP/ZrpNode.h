@@ -51,7 +51,17 @@ class ZrpNode : public omnetpp::cSimpleModule
     omnetpp::simsignal_t delaySignal;
     omnetpp::simsignal_t hopSignal;
     omnetpp::simsignal_t discoverySignal;
+    omnetpp::simsignal_t zoneSizeSignal;
+    omnetpp::simsignal_t routeLengthSignal;
+    omnetpp::simsignal_t packetKindSignal;
+    omnetpp::simsignal_t controlTxSignal;
+    omnetpp::simsignal_t dataTxSignal;
+    omnetpp::simsignal_t pingTxSignal;
+    omnetpp::simsignal_t pingRxSignal;
+    omnetpp::simsignal_t routeErrorSignal;
     long sent = 0, received = 0, replies = 0, queryCount = 0, routeErrors = 0;
+    long zoneUpdatesSent = 0, bordercastsSent = 0, routeRepliesSent = 0;
+    long pingTransmissions = 0;
     omnetpp::cStdDev delays, hops, discoveryDelays;
 
     ZrpNode *node(int index) const;
