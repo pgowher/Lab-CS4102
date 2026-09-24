@@ -1,7 +1,9 @@
 #include "ZrpNode.h"
 
-#include <algorithm>
+#include <omnetpp/ccanvas.h>
+
 #include <cmath>
+#include <deque>
 #include <queue>
 #include <string>
 
@@ -12,6 +14,63 @@ Define_Module(ZrpNode);
 namespace {
 constexpr int UPDATE_TIMER = 100;
 constexpr int PING_TIMER = 101;
+
+struct HopFigure {
+    omnetpp::cCanvas *canvas;
+    omnetpp::cFigure *line;
+    omnetpp::cFigure *label;
+};
+
+std::deque<HopFigure> hopFigures;
+long hopFigureSequence = 0;
+
+double movingRelayY(double t)
+{
+    if (t < 18) return 325.0;
+    if (t < 24) return 325.0 + (t - 18) * 175 / 6;
+    if (t < 36) return 500.0;
+    if (t < 42) return 500.0 - (t - 36) * 175 / 6;
+    return 325.0;
+}
+
+omnetpp::cFigure::Color packetColor(int kind)
+{
+    switch (kind) {
+        case ZONE_UPDATE: return omnetpp::cFigure::parseColor("darkorange");
+        case BORDERCAST: return omnetpp::cFigure::parseColor("blue");
+        case ROUTE_REPLY: return omnetpp::cFigure::parseColor("green");
+        case PING_DATA: return omnetpp::cFigure::parseColor("black");
+        default: return omnetpp::cFigure::parseColor("red");
+    }
+}
+
+void removeOldHopFigures()
+{
+    while (hopFigures.size() > 320) {
+        HopFigure old = hopFigures.front();
+        hopFigures.pop_front();
+        delete old.canvas->removeFigure(old.line);
+        delete old.canvas->removeFigure(old.label);
+    }
+}
+
+bool containsNode(const std::vector<int>& nodes, int nodeId)
+{
+    for (int value : nodes)
+        if (value == nodeId)
+            return true;
+    return false;
+}
+
+std::vector<int> reversedPath(const std::vector<int>& path)
+{
+    std::vector<int> result;
+    result.reserve(path.size());
+    for (auto iterator = path.rbegin(); iterator != path.rend(); ++iterator)
+        result.push_back(*iterator);
+    return result;
+}
+
 const char *messageName(int kind)
 {
     switch (kind) {
@@ -94,15 +153,8 @@ bool ZrpNode::inRange(int other) const
     double x2 = peer->par("x").doubleValue();
     double y2 = peer->par("y").doubleValue();
     // The relay's true position follows the displayed movement script.
-    auto movingY = [] (double t) {
-        if (t < 18) return 325.0;
-        if (t < 24) return 325.0 + (t - 18) * 175 / 6;
-        if (t < 36) return 500.0;
-        if (t < 42) return 500.0 - (t - 36) * 175 / 6;
-        return 325.0;
-    };
-    if (id == 2) y1 = movingY(simTime().dbl());
-    if (other == 2) y2 = movingY(simTime().dbl());
+    if (id == 2) y1 = movingRelayY(simTime().dbl());
+    if (other == 2) y2 = movingRelayY(simTime().dbl());
     return std::hypot(x1 - x2, y1 - y2) <= range;
 }
 
@@ -121,6 +173,35 @@ bool ZrpNode::transmit(ZrpPacket *packet, int next)
         EV_WARN << messageName(packet->getKind()) << " failed from " << id << " to " << next << "\n";
         delete packet;
         return false;
+    }
+    if (hasGUI()) {
+        cCanvas *canvas = getParentModule()->getCanvas();
+        cModule *destination = node(next);
+        double x1 = par("x").doubleValue();
+        double y1 = par("y").doubleValue();
+        double x2 = destination->par("x").doubleValue();
+        double y2 = destination->par("y").doubleValue();
+        if (id == 2) y1 = movingRelayY(simTime().dbl());
+        if (next == 2) y2 = movingRelayY(simTime().dbl());
+        auto color = packetColor(packet->getKind());
+        auto *line = new cLineFigure((std::string("zrpHopLine-") + std::to_string(++hopFigureSequence)).c_str());
+        line->setStart({x1, y1});
+        line->setEnd({x2, y2});
+        line->setLineColor(color);
+        line->setLineWidth(packet->getKind() == PING_DATA ? 3 : 4);
+        line->setEndArrowhead(cFigure::ARROW_BARBED);
+        line->setZIndex(20);
+        canvas->addFigure(line);
+        auto *label = new cTextFigure((std::string("zrpHopLabel-") + std::to_string(hopFigureSequence)).c_str());
+        label->setPosition({(x1 + x2) / 2, (y1 + y2) / 2 - 12});
+        label->setAnchor(cFigure::ANCHOR_CENTER);
+        label->setText(messageName(packet->getKind()));
+        label->setColor(color);
+        label->setHalo(true);
+        label->setZIndex(21);
+        canvas->addFigure(label);
+        hopFigures.push_back({canvas, line, label});
+        removeOldHopFigures();
     }
     EV_INFO << messageName(packet->getKind()) << " hop " << id << " -> " << next << "\n";
     sendDirect(packet, SimTime(0.002), SIMTIME_ZERO, node(next), "radioIn");
@@ -167,8 +248,7 @@ std::vector<int> ZrpNode::localPath(int target) const
     if (distance[target] < 0) return {};
     std::vector<int> path;
     for (int p = target; p >= 0; p = parent[p]) path.push_back(p);
-    std::reverse(path.begin(), path.end());
-    return path;
+    return reversedPath(path);
 }
 
 void ZrpNode::advance(ZrpPacket *packet)
@@ -199,12 +279,15 @@ void ZrpNode::bordercast(const ZrpPacket& prototype)
     for (int i = 0; i < N; ++i) {
         if (i == id) continue;
         paths[i] = localPath(i);
-        if (paths[i].size() > 1 && std::find(prototype.route.begin(), prototype.route.end(), i) == prototype.route.end())
-            farthest = std::max(farthest, (int)paths[i].size() - 1);
+        if (paths[i].size() > 1 && !containsNode(prototype.route, i)) {
+            int pathLength = (int)paths[i].size() - 1;
+            if (pathLength > farthest)
+                farthest = pathLength;
+        }
     }
     for (int i = 0; i < N; ++i) {
         if ((int)paths[i].size() - 1 != farthest || farthest == 0) continue;
-        if (std::find(prototype.route.begin(), prototype.route.end(), i) != prototype.route.end()) continue;
+        if (containsNode(prototype.route, i)) continue;
         auto *packet = prototype.dup();
         packet->segment = paths[i];
         packet->cursor = 0;
@@ -251,7 +334,7 @@ void ZrpNode::handleUpdate(ZrpPacket *packet)
 
 void ZrpNode::handleQuery(ZrpPacket *packet)
 {
-    if (std::find(packet->route.begin(), packet->route.end(), id) != packet->route.end()) {
+    if (containsNode(packet->route, id)) {
         delete packet;
         return;
     }
@@ -266,8 +349,7 @@ void ZrpNode::handleQuery(ZrpPacket *packet)
         reply->destination = packet->destination;
         reply->sequence = packet->sequence;
         reply->route = packet->route;
-        reply->segment = packet->route;
-        std::reverse(reply->segment.begin(), reply->segment.end());
+        reply->segment = reversedPath(packet->route);
         reply->cursor = 0;
         advance(reply);
     }
@@ -310,8 +392,8 @@ void ZrpNode::sendError(const std::vector<int>& path, int failedAt)
         return;
     }
     auto *error = new ZrpPacket("ROUTE ERROR", ROUTE_ERROR);
-    error->segment.assign(path.begin(), path.begin() + failedAt + 1);
-    std::reverse(error->segment.begin(), error->segment.end());
+    std::vector<int> prefix(path.begin(), path.begin() + failedAt + 1);
+    error->segment = reversedPath(prefix);
     error->cursor = 0;
     advance(error);
 }
