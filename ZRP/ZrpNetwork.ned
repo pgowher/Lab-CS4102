@@ -1,4 +1,3 @@
-simple ZrpNode
 {
     parameters:
         int nodeId;
@@ -6,12 +5,33 @@ simple ZrpNode
         double y @unit(m);
         double range @unit(m) = default(250m);
         int zoneRadius = default(2);
+        @signal[oneWayDelay](type=simtime_t);
+        @signal[hopCount](type=long);
+        @signal[routeDiscoveryDelay](type=simtime_t);
+        @signal[zoneSize](type=long);
+        @signal[activeRouteHops](type=long);
+        @signal[packetKindTransmitted](type=long);
+        @signal[controlPacketTransmitted](type=long);
+        @signal[dataPacketTransmitted](type=long);
+        @signal[pingAttempt](type=long);
+        @signal[pingDelivered](type=long);
+        @signal[routeError](type=long);
+        @statistic[oneWayDelay](title="one-way delay"; source=oneWayDelay; record=stats,vector; interpolationmode=none);
+        @statistic[hopCount](title="destination hop count"; source=hopCount; record=stats,vector; interpolationmode=none);
+        @statistic[routeDiscoveryDelay](title="route discovery delay"; source=routeDiscoveryDelay; record=stats,vector; interpolationmode=none);
+        @statistic[zoneSize](title="current zone neighbor count"; source=zoneSize; record=stats,vector; interpolationmode=sample-hold);
+        @statistic[activeRouteHops](title="active route hops"; source=activeRouteHops; record=stats,vector; interpolationmode=sample-hold);
+        @statistic[packetKindTransmitted](title="transmitted packet kind"; source=packetKindTransmitted; record=vector; interpolationmode=none);
+        @statistic[controlPacketTransmitted](title="control packet transmission"; source=controlPacketTransmitted; record=count,vector; interpolationmode=none);
+        @statistic[dataPacketTransmitted](title="data packet transmission"; source=dataPacketTransmitted; record=count,vector; interpolationmode=none);
+        @statistic[pingAttempt](title="ping attempts"; source=pingAttempt; record=count,vector; interpolationmode=none);
+        @statistic[pingDelivered](title="ping deliveries"; source=pingDelivered; record=count,vector; interpolationmode=none);
+        @statistic[routeError](title="route errors"; source=routeError; record=count,vector; interpolationmode=none);
         @class(ZrpNode);
         @display("i=device/wifilaptop");
     gates:
         input radioIn;
 }
-
 // A compact packet-level ZRP teaching model. Nodes broadcast link-state
 // updates inside a two-hop zone and bordercast queries beyond that zone.
 network ZrpNetwork
