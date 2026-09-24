@@ -1,0 +1,15 @@
+<config>
+  <interface hosts="source" names="eth0" address="10.0.1.100" netmask="255.255.255.0"/>
+  <interface hosts="west" names="eth0" address="10.0.1.1" netmask="255.255.255.0"/>
+  <interface hosts="west" names="eth1" address="10.0.12.1" netmask="255.255.255.0"/>
+  <interface hosts="north" names="eth0" address="10.0.12.2" netmask="255.255.255.0"/>
+  <interface hosts="north" names="eth1" address="10.0.23.2" netmask="255.255.255.0"/>
+  <interface hosts="east" names="eth0" address="10.0.23.3" netmask="255.255.255.0"/>
+  <interface hosts="west" names="eth2" address="10.0.14.1" netmask="255.255.255.0"/>
+  <interface hosts="south" names="eth0" address="10.0.14.4" netmask="255.255.255.0"/>
+  <interface hosts="south" names="eth1" address="10.0.43.4" netmask="255.255.255.0"/>
+  <interface hosts="east" names="eth1" address="10.0.43.3" netmask="255.255.255.0"/>
+  <interface hosts="east" names="eth2" address="10.0.3.1" netmask="255.255.255.0"/>
+  <interface hosts="destination" names="eth0" address="10.0.3.100" netmask="255.255.255.0"/>
+  <route hosts="source destination" destination="*" netmask="*" interface="eth0"/>
+</config>
